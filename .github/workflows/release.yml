@@ -5,12 +5,56 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # upload-rust-binary-action only uploads to an existing release, so create a
+  # draft first; it is published once every target has been attached.
+  create-release:
+    name: Create draft release
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "logsender") | .version')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match Cargo.toml version $version"
+            exit 1
+          fi
+      - name: Create draft release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, reusing it"
+            exit 0
+          fi
+          prerelease=()
+          [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
+          gh release create "$TAG" --draft --verify-tag --generate-notes --title "$TAG" "${prerelease[@]}"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -24,14 +68,29 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # Builds with `cross` (Docker) for the musl targets, natively on macOS,
-      # then uploads logsender-<target>.tar.gz to the GitHub release.
-      - uses: taiki-e/upload-rust-binary-action@v1
+      # then uploads logsender-<tag>-<target>.tar.gz (+ .sha256) to the release.
+      - id: upload
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: logsender
           target: ${{ matrix.target }}
           archive: logsender-$tag-$target
+          include: LICENSE,README.md
           checksum: sha256
+          locked: true
           token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.upload.outputs.tar }}
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: gh release edit "$TAG" --draft=false
