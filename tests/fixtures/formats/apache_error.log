@@ -1,0 +1,14 @@
+[Mon Jan 01 12:00:00.123456 2024] [core:error] [pid 1234:tid 5678] [client 192.168.1.5:51234] AH00124: Request exceeded the limit of 10 internal redirects
+[Mon Jan 01 12:00:01 2024] [notice] Apache/2.2.22 (Ubuntu) configured -- resuming normal operations
+[Mon Jan 01 12:00:02.000001 2024] [ssl:trace3] [pid 1234] OpenSSL: Handshake: start
+[Mon Jan 01 12:00:03.000002 2024] [:error] [pid 2345] [client 10.0.0.1:5555] PHP Fatal error:  Uncaught Error: Call to undefined function foo() in /var/www/html/index.php:3
+[Mon Jan 01 12:00:04.000003 2024] [proxy_fcgi:error] [pid 2346:tid 140234567890123] [client 10.0.0.2:5556] AH01071: Got error 'PHP message: PHP Warning:  Undefined variable $x in /var/www/html/index.php on line 5', referer: https://example.com/
+[Mon Jan 01 12:00:05.000004 2024] [mpm_event:notice] [pid 1:tid 140234567890124] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Mon Jan 01 12:00:06.000005 2024] [authz_core:error] [pid 2347:tid 140234567890125] [client ::1:51234] AH01630: client denied by server configuration: /var/www/html/.env
+[Mon Jan 01 12:00:07.000006 2024] [ssl:warn] [pid 1:tid 140234567890124] AH01909: www.example.com:443:0 server certificate does NOT include an ID which matches the server name
+[Mon Jan 01 12:00:08.000007 2024] [core:alert] [pid 2348:tid 140234567890126] [client 10.0.0.3:5557] /var/www/html/.htaccess: Invalid command 'RewriteEngine', perhaps misspelled or defined by a module not included in the server configuration
+[Mon Jan 01 12:00:09.000008 2024] [core:emerg] [pid 1:tid 140234567890124] (28)No space left on device: AH00023: Couldn't create the mpm-accept mutex
+[Mon Jan 01 12:00:10 2024] [error] [client 1.2.3.4] File does not exist: /var/www/favicon.ico
+[Mon Jan 01 12:00:11.000009 2024] [php:error] [pid 2349] [client 10.0.0.4:5558] PHP Fatal error:  Uncaught Exception: boom in /var/www/html/app.php:7
+  PHP Stack trace:
+  PHP   1. {main}() /var/www/html/app.php:0

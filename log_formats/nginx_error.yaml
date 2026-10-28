@@ -1,0 +1,24 @@
+# nginx error_log.
+#   2026/10/27 10:15:01 [error] 1234#1234: *77 connect() failed (111: Connection refused) while connecting to upstream, client: 10.0.0.1, server: example.com
+name: nginx_error
+description: nginx error log
+
+patterns:
+  NGINX_TS: '%{YEAR}/%{MONTHNUM}/%{MONTHDAY} %{TIME}'
+  NGINX_LEVEL: '(?:debug|info|notice|warn|error|crit|alert|emerg)'
+
+match:
+  - '^%{NGINX_TS:timestamp} \[%{NGINX_LEVEL:level}\] %{POSINT:process.pid}#%{POSINT:process.thread.id}: (?:\*%{POSINT:nginx.connection_id} )?%{GREEDYDATA:message}$'
+
+timestamp:
+  format: '%Y/%m/%d %H:%M:%S'
+
+level:
+  default: ERROR
+  map:
+    warn: WARNING
+    crit: CRITICAL
+    emerg: EMERGENCY
+
+multiline:
+  mode: continuation

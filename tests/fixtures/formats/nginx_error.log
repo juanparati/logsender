@@ -1,0 +1,14 @@
+2026/10/27 10:15:01 [error] 1234#1234: *77 connect() failed (111: Connection refused) while connecting to upstream, client: 10.0.0.1, server: example.com, request: "GET / HTTP/1.1", upstream: "http://127.0.0.1:9000/index.php"
+2026/10/27 10:15:02 [crit] 1234#1234: *78 SSL_do_handshake() failed (SSL: error:0A000412:SSL routines::sslv3 alert bad certificate) while SSL handshaking, client: 10.0.0.2
+  continuation of the previous message
+2026/10/27 10:15:03 [notice] 1#1: signal process started
+2026/10/27 10:15:04 [warn] 1234#1234: *79 an upstream response is buffered to a temporary file /var/cache/nginx/fastcgi_temp/1/00/0000000001 while reading upstream, client: 10.0.0.3, server: example.com, request: "GET /export HTTP/1.1", upstream: "fastcgi://unix:/run/php/php-fpm.sock:", host: "example.com"
+2026/10/27 10:15:05 [emerg] 1#1: bind() to 0.0.0.0:80 failed (98: Address already in use)
+2026/10/27 10:15:06 [alert] 1#1: worker process 1235 exited on signal 9
+2026/10/27 10:15:07 [info] 1234#1234: *80 client 10.0.0.4 closed keepalive connection
+2026/10/27 10:15:08 [error] 1234#1234: *81 open() "/var/www/html/favicon.ico" failed (2: No such file or directory), client: 10.0.0.5, server: example.com, request: "GET /favicon.ico HTTP/1.1", host: "example.com"
+2026/10/27 10:15:09 [error] 1234#1234: *82 upstream timed out (110: Connection timed out) while reading response header from upstream, client: 10.0.0.6, server: example.com, request: "POST /api/report HTTP/1.1", upstream: "http://127.0.0.1:8080/api/report", host: "example.com"
+2026/10/27 10:15:10 [error] 1234#1234: *83 limiting requests, excess: 10.520 by zone "api", client: 10.0.0.7, server: example.com, request: "GET /api/items HTTP/1.1", host: "example.com"
+2026/10/27 10:15:11 [error] 1234#1234: *84 FastCGI sent in stderr: "PHP message: PHP Fatal error:  Uncaught Exception: boom in /var/www/html/index.php:3
+Stack trace:
+#0 {main}" while reading response header from upstream, client: 10.0.0.8, server: example.com, request: "GET / HTTP/1.1", upstream: "fastcgi://unix:/run/php/php-fpm.sock:", host: "example.com"

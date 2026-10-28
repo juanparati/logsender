@@ -1,0 +1,33 @@
+# Apache httpd error_log (2.4 format, also matches the 2.2 format without module/pid).
+#   [Mon Jan 01 12:00:00.123456 2024] [core:error] [pid 1234:tid 5678] [client 192.168.1.5:51234] AH00124: Request exceeded the limit
+#   [Mon Jan 01 12:00:00.123456 2024] [:error] [pid 1234] [client 192.168.1.5:51234] PHP Fatal error: ...   (mod_php5: empty module)
+name: apache_error
+description: Apache httpd error log
+
+patterns:
+  APACHE_TS: '%{DAY} %{MONTH} +%{MONTHDAY} %{TIME}(?:\.%{INT})? %{YEAR}'
+  APACHE_LEVEL: '(?:emerg|alert|crit|error|warn|notice|info|debug|trace[1-8])'
+
+match:
+  - '^\[%{APACHE_TS:timestamp}\] \[(?:(?:%{WORD:apache.module})?:)?%{APACHE_LEVEL:level}\](?: \[pid %{POSINT:process.pid}(?::tid %{POSINT:process.thread.id})?\])?(?: \[client %{DATA:client.address}\])? %{GREEDYDATA:message}$'
+
+timestamp:
+  format: '%a %b %d %H:%M:%S%.f %Y'
+
+level:
+  default: ERROR
+  map:
+    warn: WARNING
+    crit: CRITICAL
+    emerg: EMERGENCY
+    trace1: DEBUG
+    trace2: DEBUG
+    trace3: DEBUG
+    trace4: DEBUG
+    trace5: DEBUG
+    trace6: DEBUG
+    trace7: DEBUG
+    trace8: DEBUG
+
+multiline:
+  mode: continuation

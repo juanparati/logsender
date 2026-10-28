@@ -1,0 +1,6 @@
+[27-Oct-2026 10:00:00 Europe/Madrid] PHP Warning:  Undefined variable $x in /app/index.php on line 3
+[27-Oct-2026 10:00:00 Europe/Madrid] PHP Fatal error:  Uncaught RuntimeException: boom in /app/index.php:10
+PHP Stack trace:
+#0 /app/index.php(10): fail()
+  thrown in /app/index.php on line 10
+[27-Oct-2026 10:00:01] NOTICE: fpm is running, pid 1

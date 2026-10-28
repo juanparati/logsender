@@ -1,0 +1,32 @@
+# Laravel / Monolog log file (storage/logs/laravel.log).
+#   [2019-11-24 06:30:56] production.INFO: Job finished {"queue":"default"}
+#   Stack trace lines that follow an entry are attached to it.
+name: laravel
+description: Laravel / Monolog log file
+
+patterns:
+  LARAVEL_ENV: '[^.\s]+'
+  LARAVEL_LEVEL: '[^:\s]+'
+
+match:
+  - '^\[%{TIMESTAMP_ISO8601:timestamp}\] %{LARAVEL_ENV:environment}\.%{LARAVEL_LEVEL:level}: %{GREEDYDATA:message}$'
+
+timestamp:
+  field: timestamp
+  format: '%Y-%m-%d %H:%M:%S'
+
+level:
+  field: level
+  default: INFO
+
+message:
+  field: message
+
+environment:
+  field: environment
+
+multiline:
+  mode: continuation
+
+# Extract {...} JSON chunks from the message into `data` (and `params` with --smart).
+json_context: true

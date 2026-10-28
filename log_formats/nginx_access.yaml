@@ -1,0 +1,21 @@
+# nginx access_log in the default "combined" format (also matches "common").
+#   127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
+# Captures use OpenTelemetry semantic-convention names so they map to OTLP attributes directly.
+name: nginx_access
+description: nginx access log (combined / common)
+
+patterns:
+  HTTP_REQUEST_LINE: '(?:%{WORD:http.request.method} %{NOTSPACE:url.path}(?: HTTP/%{NUMBER:network.protocol.version})?|%{DATA:http.request.raw})'
+
+match:
+  - '^%{IPORHOST:client.address} %{HTTPDUSER:client.ident} %{HTTPDUSER:user.name} \[%{HTTPDATE:timestamp}\] "%{HTTP_REQUEST_LINE:message}" %{NUMBER:http.response.status_code} (?:%{NUMBER:http.response.body.size}|-)(?: "%{DATA:http.request.referrer}" "%{DATA:user_agent.original}")?$'
+
+timestamp:
+  format: '%d/%b/%Y:%H:%M:%S %z'
+
+level:
+  field: null
+  default: INFO
+
+multiline:
+  mode: none

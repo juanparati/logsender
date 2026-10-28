@@ -1,0 +1,43 @@
+# PHP error_log / PHP-FPM logs.
+#   [27-Oct-2026 10:00:00 Europe/Madrid] PHP Warning:  Undefined variable $x in /app/index.php on line 3
+#   [27-Oct-2026 10:00:01] NOTICE: fpm is running, pid 1
+#   PHP Fatal error lines are followed by "PHP Stack trace:" / "#0 ..." / "  thrown in ..." lines, which are attached.
+name: php
+description: PHP error log and PHP-FPM log
+
+patterns:
+  PHP_TS: '%{MONTHDAY}-%{MONTH}-%{YEAR} %{TIME}'
+  PHP_ZONE: '[A-Za-z_+-][A-Za-z0-9_/+:-]*'
+  PHP_LEVEL: '(?:Fatal error|Parse error|Warning|Notice|Deprecated|Strict Standards|Recoverable fatal error|Core Warning|Core Error|Compile Error|Compile Warning|User Error|User Warning|User Notice|User Deprecated)'
+
+match:
+  - '^\[%{PHP_TS:timestamp}(?: %{PHP_ZONE:tz})?\] PHP %{PHP_LEVEL:level}:\s+%{GREEDYDATA:message}$'
+  - '^\[%{PHP_TS:timestamp}(?: %{PHP_ZONE:tz})?\] %{LOGLEVEL:level}: %{GREEDYDATA:message}$'
+  - '^\[%{PHP_TS:timestamp}(?: %{PHP_ZONE:tz})?\] %{GREEDYDATA:message}$'
+
+timestamp:
+  format: '%d-%b-%Y %H:%M:%S'
+  zone_field: tz
+
+level:
+  default: INFO
+  map:
+    warning: WARNING
+    notice: NOTICE
+    deprecated: NOTICE
+    strict standards: NOTICE
+    fatal error: CRITICAL
+    parse error: CRITICAL
+    recoverable fatal error: ERROR
+    core warning: WARNING
+    core error: CRITICAL
+    compile error: CRITICAL
+    compile warning: WARNING
+    user error: ERROR
+    user warning: WARNING
+    user notice: NOTICE
+    user deprecated: NOTICE
+
+multiline:
+  mode: pattern
+  pattern: '^(?:PHP )?(?:Stack trace:|#\d+ |\s+thrown in )'
