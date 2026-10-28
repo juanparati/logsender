@@ -47,13 +47,17 @@ fn to_is_required_except_for_stdout() {
         .write_stdin("")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("--to is required for the otlp sender"));
+        .stderr(predicate::str::contains(
+            "--to is required for the otlp sender",
+        ));
     bin()
         .args(["laravel", "--sender=es"])
         .write_stdin("")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("--to is required for the elastic_search sender"));
+        .stderr(predicate::str::contains(
+            "--to is required for the elastic_search sender",
+        ));
     bin()
         .args(["laravel", "--to=http://x", "--from-timezone=UTC"])
         .write_stdin("[2019-11-24 06:30:56] production.INFO: hi\n")
@@ -138,12 +142,7 @@ fn smart_adds_params() {
 #[test]
 fn verbose_echoes_entries_as_json_lines() {
     bin()
-        .args([
-            "laravel",
-            "--sender=stdout",
-            "-v",
-            "--from-timezone=UTC",
-        ])
+        .args(["laravel", "--sender=stdout", "-v", "--from-timezone=UTC"])
         .write_stdin("[2019-11-24 06:30:56] production.INFO: hi\n")
         .assert()
         .success()
@@ -184,11 +183,7 @@ fn datadog_without_key_is_exit_2() {
 #[test]
 fn bad_timezone_is_exit_2() {
     bin()
-        .args([
-            "laravel",
-            "--sender=stdout",
-            "--from-timezone=Mars/Olympus",
-        ])
+        .args(["laravel", "--sender=stdout", "--from-timezone=Mars/Olympus"])
         .write_stdin("")
         .assert()
         .code(2)

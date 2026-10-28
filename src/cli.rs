@@ -18,7 +18,12 @@ pub struct Cli {
     /// otlp: http://localhost:4317 (grpc) or http://localhost:4318 (http).
     /// datadog: https://http-intake.logs.datadoghq.eu (the API key goes in --api-key).
     /// elastic_search: https://user:pass@es.example.com:9200
-    #[arg(long, value_name = "HOST", env = "LOGSENDER_TO", hide_env_values = true)]
+    #[arg(
+        long,
+        value_name = "HOST",
+        env = "LOGSENDER_TO",
+        hide_env_values = true
+    )]
     pub to: Option<String>,
 
     /// Log file to tail. Reads stdin when omitted.
@@ -217,15 +222,8 @@ mod tests {
 
     #[test]
     fn headers_are_repeatable_and_env_split_on_semicolon() {
-        let c = Cli::try_parse_from([
-            "logsender",
-            "laravel",
-            "-H",
-            "A: 1",
-            "--header",
-            "B: 2",
-        ])
-        .unwrap();
+        let c = Cli::try_parse_from(["logsender", "laravel", "-H", "A: 1", "--header", "B: 2"])
+            .unwrap();
         assert_eq!(c.headers, vec!["A: 1", "B: 2"]);
         let c = Cli::try_parse_from(["logsender", "laravel", "-H", "A: 1;B: 2"]).unwrap();
         assert_eq!(c.headers, vec!["A: 1", "B: 2"]);
