@@ -33,7 +33,7 @@ jobs:
       - name: Check tag matches Cargo.toml version
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "logsender") | .version')
-          if [ "$TAG" != "v$version" ]; then
+          if [ "$TAG" != "$version" ]; then
             echo "::error::Tag $TAG does not match Cargo.toml version $version"
             exit 1
           fi
