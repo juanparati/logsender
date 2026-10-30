@@ -1,5 +1,6 @@
 //! Datadog Logs API v2: `POST {site}/api/v2/logs` with `DD-API-KEY`.
 //! Payload: JSON array, gzip-compressed, at most 1000 entries / 5 MB.
+//! Datadog only accepts entries up to 18 hours old; older ones are not sent.
 
 use async_trait::async_trait;
 use flate2::Compression;
@@ -15,12 +16,18 @@ pub const MAX_BATCH: usize = 1000;
 const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 const V2_PATH: &str = "/api/v2/logs";
 const BACKEND: &str = "datadog";
+/// `ddsource`: the integration the logs come from.
+const SOURCE: &str = "logsender";
+/// Oldest timestamp the intake accepts.
+const MAX_AGE: chrono::TimeDelta = chrono::TimeDelta::hours(18);
 
 pub struct DatadogSender {
     client: reqwest::Client,
     url: String,
     api_key: String,
     service: String,
+    /// Entries skipped for being older than `MAX_AGE`.
+    too_old: u64,
 }
 
 impl DatadogSender {
@@ -55,6 +62,7 @@ impl DatadogSender {
             url,
             api_key: api_key.into(),
             service: service.into(),
+            too_old: 0,
         })
     }
 
@@ -64,8 +72,16 @@ impl DatadogSender {
 
     fn document(&self, e: &LogEntry) -> Value {
         let mut doc = e.document(TimestampRepr::EpochMillis, None);
-        doc.insert("ddsource".into(), Value::String("laravel".into()));
+        doc.insert("ddsource".into(), Value::String(SOURCE.into()));
         doc.insert("service".into(), Value::String(self.service.clone()));
+        let env = e.environment.trim();
+        if !env.is_empty() {
+            // Tags are comma-separated, so a comma would split the value.
+            doc.insert(
+                "ddtags".into(),
+                Value::String(format!("env:{}", env.replace(',', "_"))),
+            );
+        }
         doc.insert("status".into(), Value::String(e.level.datadog_status()));
         Value::Object(doc)
     }
@@ -115,12 +131,37 @@ impl Sender for DatadogSender {
     }
 
     async fn send(&mut self, entries: &[LogEntry]) -> Result<usize> {
-        if entries.is_empty() {
-            return Ok(0);
+        let cutoff = chrono::Utc::now() - MAX_AGE;
+        let docs: Vec<Value> = entries
+            .iter()
+            .filter(|e| e.timestamp >= cutoff)
+            .map(|e| self.document(e))
+            .collect();
+        if !docs.is_empty() {
+            self.post(&docs).await?;
         }
-        let docs: Vec<Value> = entries.iter().map(|e| self.document(e)).collect();
-        self.post(&docs).await?;
-        Ok(0)
+        // Counted after the post so a retried batch is not counted twice.
+        let skipped = entries.len() - docs.len();
+        if skipped > 0 {
+            if self.too_old == 0 {
+                tracing::warn!(
+                    "skipping entries older than 18 hours: Datadog does not accept them \
+                     (they are counted as failed deliveries)"
+                );
+            }
+            self.too_old += skipped as u64;
+        }
+        Ok(skipped)
+    }
+
+    async fn shutdown(&mut self) -> Result<()> {
+        if self.too_old > 0 {
+            tracing::warn!(
+                skipped = self.too_old,
+                "entries older than 18 hours were not sent to Datadog"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -128,14 +169,14 @@ impl Sender for DatadogSender {
 mod tests {
     use super::*;
     use crate::level::{Level, LogLevel};
-    use chrono::TimeZone;
+    use chrono::{TimeDelta, Utc};
     use std::io::Read;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn entry(msg: &str) -> LogEntry {
         LogEntry {
-            timestamp: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
+            timestamp: Utc::now(),
             environment: "production".into(),
             level: LogLevel::Known(Level::Error),
             message: msg.into(),
@@ -201,7 +242,8 @@ mod tests {
             std::time::Duration::from_secs(5),
         )
         .unwrap();
-        s.send(&[entry("boom")]).await.unwrap();
+        let e = entry("boom");
+        s.send(std::slice::from_ref(&e)).await.unwrap();
 
         let req = &server.received_requests().await.unwrap()[0];
         let mut gz = flate2::read::GzDecoder::new(&req.body[..]);
@@ -211,11 +253,12 @@ mod tests {
         let doc = &v[0];
         assert_eq!(doc["message"], "boom");
         assert_eq!(doc["service"], "myapp");
-        assert_eq!(doc["ddsource"], "laravel");
+        assert_eq!(doc["ddsource"], "logsender");
+        assert_eq!(doc["ddtags"], "env:production");
         assert_eq!(doc["hostname"], "web1");
         assert_eq!(doc["status"], "error");
         assert_eq!(doc["level"], "ERROR");
-        assert_eq!(doc["timestamp"], 1577836800000i64);
+        assert_eq!(doc["timestamp"], e.timestamp.timestamp_millis());
         assert_eq!(doc["params"]["job"], "x");
         assert_eq!(doc["stacktrace"], "#0 main");
     }
@@ -236,5 +279,58 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         assert!(!err.is_retryable());
+    }
+
+    async fn received(server: &MockServer) -> Vec<Value> {
+        let mut docs = Vec::new();
+        for req in server.received_requests().await.unwrap() {
+            let mut gz = flate2::read::GzDecoder::new(&req.body[..]);
+            let mut json = String::new();
+            gz.read_to_string(&mut json).unwrap();
+            docs.extend(serde_json::from_str::<Vec<Value>>(&json).unwrap());
+        }
+        docs
+    }
+
+    #[tokio::test]
+    async fn skips_entries_older_than_18_hours() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(202))
+            .mount(&server)
+            .await;
+        let mut s =
+            DatadogSender::new(&server.uri(), "k", "s", std::time::Duration::from_secs(5)).unwrap();
+        let mut old = entry("old");
+        old.timestamp = Utc::now() - TimeDelta::hours(19);
+        let skipped = s.send(&[old.clone(), entry("new")]).await.unwrap();
+        assert_eq!(skipped, 1);
+        let docs = received(&server).await;
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0]["message"], "new");
+
+        // A batch with only old entries makes no request at all.
+        assert_eq!(s.send(&[old]).await.unwrap(), 1);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert_eq!(s.too_old, 2);
+    }
+
+    #[tokio::test]
+    async fn no_ddtags_without_environment() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(202))
+            .mount(&server)
+            .await;
+        let mut s =
+            DatadogSender::new(&server.uri(), "k", "s", std::time::Duration::from_secs(5)).unwrap();
+        let mut a = entry("a");
+        a.environment = String::new();
+        let mut b = entry("b");
+        b.environment = "prod,eu".into();
+        s.send(&[a, b]).await.unwrap();
+        let docs = received(&server).await;
+        assert!(docs[0].get("ddtags").is_none());
+        assert_eq!(docs[1]["ddtags"], "env:prod_eu");
     }
 }
