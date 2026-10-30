@@ -31,7 +31,7 @@ pub struct Cli {
     pub input: Option<PathBuf>,
 
     /// Index (Elasticsearch) or service name (Datadog, OTLP).
-    #[arg(long, default_value = "laravel", env = "LOGSENDER_INDEX")]
+    #[arg(long, default_value = "logsender", env = "LOGSENDER_INDEX")]
     pub index: String,
 
     /// Comma-separated log levels to drop, e.g. DEBUG,INFO.
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn defaults() {
         let c = Cli::try_parse_from(["logsender", "laravel"]).unwrap();
-        assert_eq!(c.index, "laravel");
+        assert_eq!(c.index, "logsender");
         assert_eq!(c.batch_size, None);
         assert_eq!(c.on_full, OnFull::Block);
         assert_eq!(c.retries, 2);

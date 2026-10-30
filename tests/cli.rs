@@ -88,7 +88,7 @@ fn stdin_to_stdout_emits_every_entry() {
         .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("not JSON ({e}): {l}")))
         .collect();
     assert_eq!(docs.len(), headers);
-    assert!(docs.iter().all(|d| d["index"] == "laravel"), "{out}");
+    assert!(docs.iter().all(|d| d["index"] == "logsender"), "{out}");
     assert!(!out.lines().any(|l| l.starts_with("=====")), "{out}");
     assert!(out.contains(r#""message":"Hello logstash""#));
     assert!(out.contains(r#""stacktrace":"Stack trace:\n#0"#));
