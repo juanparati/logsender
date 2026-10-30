@@ -138,22 +138,21 @@ impl OtlpSender {
         for (k, v) in &e.fields {
             r.add_attribute(Key::new(k.clone()), v.clone());
         }
-        match (&e.params, self.smart) {
-            (Some(params), true) => {
-                let mut attrs = Vec::new();
-                flatten("params", params, &mut attrs);
-                r.add_attributes(attrs);
-            }
-            _ => {
-                if !e.data.is_empty() {
-                    let v: AnyValue = if e.data.len() == 1 {
-                        AnyValue::from(e.data[0].clone())
-                    } else {
-                        e.data.iter().cloned().map(AnyValue::from).collect()
-                    };
-                    r.add_attribute("log.data", v);
-                }
-            }
+        let params = e.params.as_ref().filter(|_| self.smart);
+        if let Some(params) = params {
+            let mut attrs = Vec::new();
+            flatten("params", params, &mut attrs);
+            r.add_attributes(attrs);
+        }
+        // Raw chunks only when `--smart` did not decode all of them.
+        let decoded = params.is_some() && e.params_cover_data();
+        if !decoded && !e.data.is_empty() {
+            let v: AnyValue = if e.data.len() == 1 {
+                AnyValue::from(e.data[0].clone())
+            } else {
+                e.data.iter().cloned().map(AnyValue::from).collect()
+            };
+            r.add_attribute("log.data", v);
         }
         r
     }
@@ -329,6 +328,17 @@ mod tests {
         let a = attrs(&s.record(&e));
         assert_eq!(a["params.0.a"], AnyValue::Int(1));
         assert_eq!(a["params.1.b"], AnyValue::Int(2));
+    }
+
+    #[tokio::test]
+    async fn partly_decoded_chunks_keep_raw_data() {
+        let s = sender(true);
+        let mut e = entry();
+        e.data = vec![r#"{"a":1}"#.into(), r#"{"broken": }"#.into()];
+        e.params = Some(serde_json::json!([{"a": 1}]));
+        let a = attrs(&s.record(&e));
+        assert_eq!(a["params.0.a"], AnyValue::Int(1));
+        assert!(a.contains_key("log.data"));
     }
 
     #[test]

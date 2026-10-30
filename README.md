@@ -65,7 +65,7 @@ See `logsender --help`
 # Using OTLP (OpenTelemetry Protocol) (--sender)
 # Read log file from storage/logs/laravel.log file (--input)
 # Reporting logs for service "myapp" (--index)
-# Parse JSON context into a "params" field (--smart)
+# Parse JSON context into a "params" field instead of the raw "data" (--smart)
 logsender laravel --to=http://localhost:4317 --sender=otlp --input=storage/logs/laravel.log --index=myapp --smart
 
 # Use syslog built-in format
@@ -82,7 +82,7 @@ logsender syslog --to=http://localhost:4318 --sender=otlp --otlp-protocol=http -
 # Defined the sender hostname is "web01" (--hostname)
 # Indicating that logs datetimes are in the Europe/Madrid timezone (--from-timezone)
 # Read log file from laravel.log file (--input)
-# Parse JSON context into a "params" field (--smart)
+# Parse JSON context into a "params" field instead of the raw "data" (--smart)
 logsender laravel --to=https://http-intake.logs.datadoghq.eu --sender=datadog --api-key=$DD_API_KEY \
   --index=myapp --hostname=web01 --from-timezone=Europe/Madrid --input=laravel.log --smart  
 

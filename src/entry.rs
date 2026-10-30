@@ -60,6 +60,17 @@ impl LogEntry {
         }
     }
 
+    /// True when `--smart` decoded every JSON chunk, so `data` would only
+    /// repeat `params`.
+    pub fn params_cover_data(&self) -> bool {
+        match (&self.params, self.data.len()) {
+            (None, _) => false,
+            (Some(_), 1) => true,
+            (Some(Value::Array(a)), n) => a.len() == n,
+            (Some(_), _) => false,
+        }
+    }
+
     /// The flat document shape used by the Datadog, Elasticsearch and stdout
     /// senders. `to_tz` only applies to the ISO representation.
     pub fn document(
@@ -82,7 +93,9 @@ impl LogEntry {
             Value::String(self.level.as_str().to_string()),
         );
         doc.insert("message".into(), Value::String(self.message.clone()));
-        doc.insert("data".into(), self.data_value());
+        if !self.params_cover_data() {
+            doc.insert("data".into(), self.data_value());
+        }
         if let Some(p) = &self.params {
             doc.insert("params".into(), p.clone());
         }
@@ -155,5 +168,33 @@ mod tests {
         assert_eq!(e.data_value(), Value::String("{\"a\":1}".into()));
         e.data.push("{\"b\":2}".into());
         assert!(e.data_value().is_array());
+    }
+
+    #[test]
+    fn decoded_params_replace_data() {
+        let mut e = entry();
+        e.data = vec!["{\"a\":1}".into()];
+        e.params = Some(serde_json::json!({"a": 1}));
+        let d = e.document(TimestampRepr::EpochMillis, None);
+        assert!(!d.contains_key("data"));
+        assert_eq!(d["params"], serde_json::json!({"a": 1}));
+    }
+
+    #[test]
+    fn partly_decoded_params_keep_data() {
+        let mut e = entry();
+        e.data = vec!["{\"a\":1}".into(), "{\"broken\": }".into()];
+        e.params = Some(serde_json::json!([{"a": 1}]));
+        let d = e.document(TimestampRepr::EpochMillis, None);
+        assert!(d["data"].is_array());
+        assert!(d.contains_key("params"));
+    }
+
+    #[test]
+    fn undecoded_data_is_kept() {
+        let mut e = entry();
+        e.data = vec!["{\"broken\": }".into()];
+        let d = e.document(TimestampRepr::EpochMillis, None);
+        assert_eq!(d["data"], Value::String("{\"broken\": }".into()));
     }
 }

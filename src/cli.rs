@@ -80,7 +80,7 @@ pub struct Cli {
     #[arg(long, env = "LOGSENDER_HOSTNAME")]
     pub hostname: Option<String>,
 
-    /// Parse JSON context into a `params` field (or OTLP attributes). Formats with `json_context: true` only.
+    /// Parse JSON context into a `params` field (or OTLP attributes); the raw `data` is then left out unless some JSON failed to decode. Formats with `json_context: true` only.
     #[arg(long, env = "LOGSENDER_SMART")]
     pub smart: bool,
 
