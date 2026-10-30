@@ -213,7 +213,10 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     );
     let cfg = PipelineConfig {
         read_freq: Duration::from_millis(cli.read_freq.max(1)),
-        batch_size: cli.batch_size.max(1),
+        batch_size: cli
+            .batch_size
+            .unwrap_or_else(|| cli.sender.default_batch_size())
+            .max(1),
         flush_interval: Duration::from_millis(cli.flush_interval.max(1)),
         retries: cli.retries,
         shutdown_timeout: Duration::from_secs(cli.shutdown_timeout),
@@ -238,18 +241,19 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         env!("CARGO_PKG_VERSION")
     );
 
-    let pipeline = Pipeline::new(cfg, cli.max_queue);
+    let pipeline = Pipeline::new(cfg, cli.max_queue, cli.on_full);
     let signal_kind = spawn_signal_handler(&pipeline);
 
     let (outcome, stats) = pipeline.run(source, folder, sender).await;
 
     if stats.dropped() > 0 {
         eprintln!(
-            "{} {} entries were dropped (queue full: {}, delivery failed: {})",
+            "{} {} entries were dropped (queue full: {}, delivery failed: {}, shutdown timeout: {})",
             colored::Colorize::yellow("warning:"),
             stats.dropped(),
             stats.dropped_queue,
-            stats.dropped_send
+            stats.dropped_send,
+            stats.dropped_shutdown
         );
     }
     let interrupted = signal_kind.load(std::sync::atomic::Ordering::SeqCst) == SIG_INT;

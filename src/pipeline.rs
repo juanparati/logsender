@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 
 use crate::entry::LogEntry;
 use crate::folder::Folder;
-use crate::queue::{Queue, StatsSnapshot};
+use crate::queue::{OnFull, Queue, StatsSnapshot};
 use crate::reader::LineSource;
 use crate::sender::Sender;
 
@@ -47,9 +47,9 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(cfg: PipelineConfig, max_queue: usize) -> Self {
+    pub fn new(cfg: PipelineConfig, max_queue: usize, on_full: OnFull) -> Self {
         Pipeline {
-            queue: Arc::new(Queue::new(max_queue)),
+            queue: Arc::new(Queue::new(max_queue, on_full)),
             stop: Arc::new(AtomicBool::new(false)),
             cfg,
         }
@@ -89,7 +89,7 @@ impl Pipeline {
                             tracing::error!(error = %e, "reading input failed");
                             if consecutive_errors >= 10 {
                                 if let Some(entry) = folder.flush() {
-                                    accept(&cfg, &queue, entry);
+                                    accept(&cfg, &queue, &stop, entry);
                                 }
                                 queue.close();
                                 return Err(e);
@@ -101,11 +101,11 @@ impl Pipeline {
 
                     for line in &batch.lines {
                         if let Some(entry) = folder.push_line(line) {
-                            accept(&cfg, &queue, entry);
+                            accept(&cfg, &queue, &stop, entry);
                         }
                     }
                     if let Some(entry) = folder.tick() {
-                        accept(&cfg, &queue, entry);
+                        accept(&cfg, &queue, &stop, entry);
                     }
                     if batch.eof {
                         break;
@@ -113,7 +113,7 @@ impl Pipeline {
                     std::thread::sleep(cfg.read_freq);
                 }
                 if let Some(entry) = folder.flush() {
-                    accept(&cfg, &queue, entry);
+                    accept(&cfg, &queue, &stop, entry);
                 }
                 queue.close();
                 Ok(())
@@ -195,7 +195,7 @@ impl Pipeline {
         } else if !stop_requested {
             Outcome::Eof
         } else if timed_out {
-            Outcome::StoppedWithLoss(self.queue.stats.snapshot().dropped_queue)
+            Outcome::StoppedWithLoss(self.queue.stats.snapshot().dropped_shutdown)
         } else {
             Outcome::Stopped
         };
@@ -203,14 +203,14 @@ impl Pipeline {
     }
 }
 
-fn accept(cfg: &PipelineConfig, queue: &Queue, entry: LogEntry) {
+fn accept(cfg: &PipelineConfig, queue: &Queue, stop: &AtomicBool, entry: LogEntry) {
     if cfg.ignore_levels.iter().any(|l| entry.level.matches(l)) {
         return;
     }
     if cfg.echo_entries {
         println!("{}", serde_json::to_string(&entry).expect("serializable"));
     }
-    queue.push(entry);
+    queue.push(entry, stop);
 }
 
 async fn deliver(cfg: &PipelineConfig, queue: &Queue, sender: &mut dyn Sender, batch: &[LogEntry]) {
@@ -346,7 +346,7 @@ mod tests {
         *sender.fail_first.lock().unwrap() = 1;
         let got = sender.got.clone();
 
-        let p = Pipeline::new(cfg(), 100);
+        let p = Pipeline::new(cfg(), 100, OnFull::Block);
         let (outcome, stats) = p.run(Box::new(source), folder, Box::new(sender)).await;
 
         assert_eq!(outcome, Outcome::Eof);
@@ -370,7 +370,7 @@ mod tests {
         *sender.fail_first.lock().unwrap() = 10;
         let mut c = cfg();
         c.retries = 1;
-        let p = Pipeline::new(c, 100);
+        let p = Pipeline::new(c, 100, OnFull::Block);
         let (_, stats) = p.run(Box::new(source), folder, Box::new(sender)).await;
         assert_eq!(stats.dropped_send, 1);
         assert_eq!(stats.send_failures, 2);

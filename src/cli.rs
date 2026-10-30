@@ -43,14 +43,9 @@ pub struct Cli {
     )]
     pub ignore: Vec<String>,
 
-    /// Entries per request. Clamped to the back-end limit (Datadog: 1000).
-    #[arg(
-        long,
-        default_value_t = 10,
-        value_name = "N",
-        env = "LOGSENDER_BATCH_SIZE"
-    )]
-    pub batch_size: usize,
+    /// Entries per request [default: 500 for datadog, 10 otherwise]. Clamped to the back-end limit (Datadog: 1000).
+    #[arg(long, value_name = "N", env = "LOGSENDER_BATCH_SIZE")]
+    pub batch_size: Option<usize>,
 
     /// Skip TLS certificate verification (elastic_search and otlp over http only).
     #[arg(long, env = "LOGSENDER_NO_CHECK_CERT")]
@@ -126,7 +121,7 @@ pub struct Cli {
     #[arg(long, env = "LOGSENDER_FROM_START")]
     pub from_start: bool,
 
-    /// Entries held in memory while the back-end is unreachable. Oldest are dropped first.
+    /// Entries held in memory between the reader and the sender. See --on-full.
     #[arg(
         long,
         default_value_t = 10_000,
@@ -134,6 +129,10 @@ pub struct Cli {
         env = "LOGSENDER_MAX_QUEUE"
     )]
     pub max_queue: usize,
+
+    /// What to do when the queue is full.
+    #[arg(long, value_enum, default_value_t = OnFull::Block, value_name = "POLICY", env = "LOGSENDER_ON_FULL")]
+    pub on_full: OnFull,
 
     /// Longest time a partial batch waits before being sent, in milliseconds.
     #[arg(
@@ -178,6 +177,25 @@ pub enum SenderKind {
     Post,
 }
 
+impl SenderKind {
+    /// Batch size used when --batch-size is not given.
+    pub fn default_batch_size(self) -> usize {
+        match self {
+            SenderKind::Datadog => 500,
+            _ => 10,
+        }
+    }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnFull {
+    /// Stop reading until the sender catches up. Nothing is lost while reading
+    /// a file; a slow back-end slows down whatever writes into stdin.
+    Block,
+    /// Drop the oldest queued entry. Never stalls the input; loses entries.
+    Drop,
+}
+
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtlpProtocol {
     /// gRPC (default port 4317).
@@ -211,7 +229,8 @@ mod tests {
     fn defaults() {
         let c = Cli::try_parse_from(["logsender", "laravel"]).unwrap();
         assert_eq!(c.index, "laravel");
-        assert_eq!(c.batch_size, 10);
+        assert_eq!(c.batch_size, None);
+        assert_eq!(c.on_full, OnFull::Block);
         assert_eq!(c.retries, 2);
         assert_eq!(c.read_freq, 500);
         assert_eq!(c.sender, SenderKind::Stdout);

@@ -23,6 +23,13 @@ LogSender is a small, fast single static binary that makes it ideal for small co
 
 LogSender tails a log file (or reads stdin), parses each entry, and ships it to a destination.
 
+Entries wait in an in-memory queue (`--max-queue`, default 10000) between the reader and the sender. When the destination is slower than the input, `--on-full` decides what happens:
+
+- `block` (default): stop reading until the sender catches up. Nothing is lost while tailing or backfilling a file; the file is the buffer. When reading stdin, a slow destination slows down the process writing into the pipe.
+- `drop`: discard the oldest queued entry. The input is never stalled, but entries are lost. Use it when blocking the producer is worse than losing logs.
+
+Entries are sent in batches (`--batch-size`, default 500 for Datadog and 10 for the other senders).
+
 
 ### Supported destinations
 
