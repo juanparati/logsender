@@ -12,6 +12,8 @@ pub struct Batch {
     pub lines: Vec<String>,
     /// The source will never produce more lines (stdin closed).
     pub eof: bool,
+    /// More input is ready right now: poll again without waiting.
+    pub more: bool,
 }
 
 /// Blocking line source polled from the reader thread.

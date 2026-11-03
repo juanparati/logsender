@@ -5,7 +5,7 @@
 //! 2. Detect rotation (inode changed or file unlinked): drain the old handle,
 //!    then switch to the new file from offset 0.
 //! 3. Detect truncation (size < position): rewind.
-//! 4. Read everything new and split into lines.
+//! 4. Read what is new, up to `max_read` bytes, and split into lines.
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use super::{Batch, LineSource, split_lines};
 
 pub const DEFAULT_MAX_LINE: usize = 32 * 1024;
+/// Bytes read per poll, so a backfill never holds the whole file in memory.
+pub const DEFAULT_MAX_READ: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileId {
@@ -29,6 +31,7 @@ pub struct FileTail {
     pos: u64,
     carry: Vec<u8>,
     max_line: usize,
+    max_read: usize,
     /// Seek to the end on the first successful open.
     start_at_end: bool,
     first_open: bool,
@@ -44,10 +47,16 @@ impl FileTail {
             pos: 0,
             carry: Vec::new(),
             max_line,
+            max_read: DEFAULT_MAX_READ,
             start_at_end,
             first_open: true,
             read_buf: vec![0; 64 * 1024],
         }
+    }
+
+    pub fn with_max_read(mut self, max: usize) -> Self {
+        self.max_read = max.max(1);
+        self
     }
 
     pub fn path(&self) -> &Path {
@@ -76,21 +85,25 @@ impl FileTail {
         Ok(true)
     }
 
-    /// Read from `pos` to EOF on the current handle.
-    fn drain(&mut self, out: &mut Vec<String>) -> io::Result<()> {
+    /// Read from `pos` on the current handle, up to `max_read` bytes.
+    /// Returns true once EOF was reached.
+    fn drain(&mut self, out: &mut Vec<String>) -> io::Result<bool> {
         let Some(file) = self.file.as_mut() else {
-            return Ok(());
+            return Ok(true);
         };
         file.seek(SeekFrom::Start(self.pos))?;
-        loop {
-            let n = file.read(&mut self.read_buf)?;
+        let mut read = 0;
+        while read < self.max_read {
+            let want = self.read_buf.len().min(self.max_read - read);
+            let n = file.read(&mut self.read_buf[..want])?;
             if n == 0 {
-                break;
+                return Ok(true);
             }
+            read += n;
             self.pos += n as u64;
             split_lines(&mut self.carry, &self.read_buf[..n], self.max_line, out);
         }
-        Ok(())
+        Ok(false)
     }
 
     fn rotated(&self) -> io::Result<bool> {
@@ -123,7 +136,10 @@ impl LineSource for FileTail {
         if self.rotated()? {
             // Finish the old file, then move on. A partial last line in the old
             // file is emitted as-is.
-            self.drain(&mut batch.lines)?;
+            if !self.drain(&mut batch.lines)? {
+                batch.more = true;
+                return Ok(batch);
+            }
             if !self.carry.is_empty() {
                 let rest = std::mem::take(&mut self.carry);
                 batch
@@ -142,7 +158,7 @@ impl LineSource for FileTail {
             self.carry.clear();
         }
 
-        self.drain(&mut batch.lines)?;
+        batch.more = !self.drain(&mut batch.lines)?;
         Ok(batch)
     }
 }
@@ -230,6 +246,36 @@ mod tests {
             .write_all(b"more\n")
             .unwrap();
         assert_eq!(lines(&mut t), vec!["more"]);
+    }
+
+    #[test]
+    fn reads_are_capped_per_poll() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("app.log");
+        std::fs::write(&p, "aaaa\nbbbb\ncccc\n").unwrap();
+        let mut t = FileTail::new(&p, false, 1024).with_max_read(10);
+        let b = t.poll().unwrap();
+        assert_eq!(b.lines, vec!["aaaa", "bbbb"]);
+        assert!(b.more);
+        let b = t.poll().unwrap();
+        assert_eq!(b.lines, vec!["cccc"]);
+        assert!(!b.more);
+    }
+
+    #[test]
+    fn rotated_file_is_drained_across_polls_before_switching() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("app.log");
+        std::fs::write(&p, "").unwrap();
+        let mut t = FileTail::new(&p, true, 1024).with_max_read(10);
+        assert!(lines(&mut t).is_empty());
+        std::fs::write(&p, "old1\nold2\nold3\n").unwrap();
+        std::fs::rename(&p, dir.path().join("app.log.1")).unwrap();
+        std::fs::write(&p, "new\n").unwrap();
+        let b = t.poll().unwrap();
+        assert_eq!(b.lines, vec!["old1", "old2"]);
+        assert!(b.more);
+        assert_eq!(lines(&mut t), vec!["old3", "new"]);
     }
 
     #[test]

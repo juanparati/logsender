@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::{Sender, join_url};
 use crate::entry::{LogEntry, TimestampRepr};
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, retryable_status};
 
 const BACKEND: &str = "elastic_search";
 
@@ -140,17 +140,41 @@ impl Sender for ElasticSender {
         if parsed["errors"].as_bool() != Some(true) {
             return Ok(0);
         }
-        // Partial failure: items that were rejected will not succeed on retry.
+        // Partial failure. Items throttled (429) or hit by a server error
+        // are retried; any other item error will not succeed on retry.
         let mut rejected = 0;
+        let mut retry = Vec::new();
+        let mut retry_status = 0;
         if let Some(items) = parsed["items"].as_array() {
-            for item in items {
-                if let Some(err) = item["index"]["error"].as_object() {
+            // Items come back in request order; without a 1:1 match the
+            // indices cannot be trusted, so nothing is retried.
+            let aligned = items.len() == entries.len();
+            for (i, item) in items.iter().enumerate() {
+                let Some(err) = item["index"]["error"].as_object() else {
+                    continue;
+                };
+                let status = item["index"]["status"].as_u64().unwrap_or(0) as u16;
+                if aligned && retryable_status(status) {
+                    retry.push(i);
+                    retry_status = status;
+                } else {
                     rejected += 1;
                     tracing::warn!(error = ?err.get("type"), reason = ?err.get("reason"), "Elasticsearch rejected a document");
                 }
             }
         }
-        Ok(rejected)
+        if retry.is_empty() {
+            return Ok(rejected);
+        }
+        Err(Error::Partial {
+            source: Box::new(Error::Http {
+                backend: BACKEND,
+                status: retry_status,
+                body: format!("{} documents not indexed, retrying them", retry.len()),
+            }),
+            retry,
+            rejected,
+        })
     }
 }
 
@@ -273,6 +297,46 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.send(&[entry("a"), entry("b")]).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn throttled_items_are_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errors": true,
+                "items": [
+                    {"index": {"status": 429, "error": {"type": "es_rejected_execution_exception"}}},
+                    {"index": {"status": 201}},
+                    {"index": {"status": 400, "error": {"type": "mapper_parsing_exception"}}}
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let mut s = ElasticSender::new(
+            &[server.uri()],
+            "i",
+            None,
+            None,
+            true,
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        let err = s
+            .send(&[entry("a"), entry("b"), entry("c")])
+            .await
+            .err()
+            .unwrap();
+        assert!(err.is_retryable());
+        match err {
+            Error::Partial {
+                retry, rejected, ..
+            } => {
+                assert_eq!(retry, vec![0]);
+                assert_eq!(rejected, 1);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[tokio::test]

@@ -143,7 +143,7 @@ pub struct Cli {
     )]
     pub flush_interval: u64,
 
-    /// Seconds to wait for queued entries to drain on shutdown.
+    /// Seconds to wait for queued entries to drain after a stop signal (stdin EOF waits for all).
     #[arg(
         long,
         default_value_t = 5,

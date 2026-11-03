@@ -77,11 +77,11 @@ pub(crate) fn split_credentials(raw: &str, backend: &str) -> Result<(String, Bas
     Ok((url.to_string(), basic))
 }
 
+/// Decode `%XX` escapes only: a raw `+` or `&` in userinfo is literal.
 fn percent_decode(s: &str) -> String {
-    url::form_urlencoded::parse(s.as_bytes())
-        .map(|(k, v)| format!("{k}{v}"))
-        .collect::<Vec<_>>()
-        .join("")
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 /// Parse a `--header "Name: value"` argument.
@@ -158,6 +158,8 @@ mod tests {
         let (url, basic) = split_credentials("http://es:9200", "x").unwrap();
         assert_eq!(url, "http://es:9200/");
         assert!(basic.is_none());
+        let (_, basic) = split_credentials("https://u:p+ss&w%2Bd@es.lan/", "x").unwrap();
+        assert_eq!(basic, Some(("u".into(), Some("p+ss&w+d".into()))));
         assert!(split_credentials("ftp://x", "x").is_err());
         assert!(split_credentials("nope", "x").is_err());
     }

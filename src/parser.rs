@@ -89,18 +89,31 @@ impl JsonSpan {
 }
 
 /// Locate `{...}` chunks that contain at least one double quote, matching
-/// braces so that nested objects and `{{ moustache }}` inside strings survive.
+/// braces so that nested objects survive. Braces inside string values
+/// (`{{ moustache }}`, `"}"`) do not count.
 ///
-/// This is a port of laralog's `jsonExtract`, with one fix: a brace group
+/// This is a port of laralog's `jsonExtract`, with two fixes: a brace group
 /// without quotes (e.g. `{foo}`) no longer poisons the start offset of the
-/// next real JSON chunk.
+/// next real JSON chunk, and an unbalanced brace inside a string no longer
+/// ends the chunk early.
 pub fn json_extract(s: &str) -> Vec<JsonSpan> {
     let mut depth: i32 = -1;
     let mut init: Option<usize> = None;
     let mut found: Option<usize> = None;
+    let mut in_string = false;
+    let mut escaped = false;
     let mut spans = Vec::new();
 
     for (i, b) in s.bytes().enumerate() {
+        if in_string {
+            match b {
+                _ if escaped => escaped = false,
+                b'\\' => escaped = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
         match b {
             b'{' => {
                 depth += 1;
@@ -118,8 +131,11 @@ pub fn json_extract(s: &str) -> Vec<JsonSpan> {
                     found = None;
                 }
             }
-            b'"' if depth > -1 && found.is_none() => {
-                found = init;
+            b'"' if init.is_some() => {
+                in_string = true;
+                if found.is_none() {
+                    found = init;
+                }
             }
             _ => {}
         }
@@ -363,6 +379,15 @@ mod tests {
         let spans = json_extract(s);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].text(s), r#"{"id": 5}"#);
+    }
+
+    #[test]
+    fn braces_inside_strings_do_not_end_the_chunk() {
+        let s = r#"x {"a": "}", "b": "{"} y {"c": "q\"}"} z"#;
+        let spans = json_extract(s);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].text(s), r#"{"a": "}", "b": "{"}"#);
+        assert_eq!(spans[1].text(s), r#"{"c": "q\"}"}"#);
     }
 
     #[test]

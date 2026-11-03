@@ -1,6 +1,6 @@
 [package]
 name = "logsender"
-version = "0.5.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A lightweight log sender agent"
@@ -29,6 +29,7 @@ chrono-tz = "0.10"
 grok = { version = "2.4", default-features = false, features = ["pcre2"] }
 serde_yaml_ng = "0.10"
 url = "2"
+percent-encoding = "2"
 hostname = "0.4"
 colored = "3"
 tracing = "0.1"

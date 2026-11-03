@@ -70,6 +70,33 @@ impl DatadogSender {
         &self.url
     }
 
+    fn count_too_old(&mut self, skipped: usize) {
+        if skipped == 0 {
+            return;
+        }
+        if self.too_old == 0 {
+            tracing::warn!(
+                "skipping entries older than 18 hours: Datadog does not accept them \
+                 (they are counted as failed deliveries)"
+            );
+        }
+        self.too_old += skipped as u64;
+    }
+
+    /// The error for a chunk failing at entry `start`: plain when nothing
+    /// was settled yet, otherwise a partial delivery of `start..len`.
+    fn unsent(&mut self, start: usize, len: usize, skipped: usize, err: Error) -> Error {
+        if start == 0 {
+            return err;
+        }
+        self.count_too_old(skipped);
+        Error::Partial {
+            retry: (start..len).collect(),
+            rejected: skipped,
+            source: Box::new(err),
+        }
+    }
+
     fn document(&self, e: &LogEntry) -> Value {
         let mut doc = e.document(TimestampRepr::EpochMillis, None);
         doc.insert("ddsource".into(), Value::String(SOURCE.into()));
@@ -86,15 +113,10 @@ impl DatadogSender {
         Value::Object(doc)
     }
 
-    async fn post(&self, docs: &[Value]) -> Result<()> {
-        let json = serde_json::to_vec(docs).expect("serializable");
-        if json.len() > MAX_BODY_BYTES && docs.len() > 1 {
-            let (a, b) = docs.split_at(docs.len() / 2);
-            Box::pin(self.post(a)).await?;
-            return Box::pin(self.post(b)).await;
-        }
+    /// POST one JSON array body.
+    async fn post(&self, json: &[u8]) -> Result<()> {
         let mut gz = GzEncoder::new(Vec::with_capacity(json.len() / 4), Compression::default());
-        gz.write_all(&json).map_err(Error::Io)?;
+        gz.write_all(json).map_err(Error::Io)?;
         let body = gz.finish().map_err(Error::Io)?;
 
         let resp = self
@@ -130,27 +152,44 @@ impl Sender for DatadogSender {
         MAX_BATCH
     }
 
+    /// Entries go out in chunks of at most `MAX_BODY_BYTES`. When a chunk
+    /// fails after earlier ones went through, only the entries from the
+    /// failed chunk on are reported for retry, so nothing is sent twice.
     async fn send(&mut self, entries: &[LogEntry]) -> Result<usize> {
         let cutoff = chrono::Utc::now() - MAX_AGE;
-        let docs: Vec<Value> = entries
-            .iter()
-            .filter(|e| e.timestamp >= cutoff)
-            .map(|e| self.document(e))
-            .collect();
-        if !docs.is_empty() {
-            self.post(&docs).await?;
-        }
-        // Counted after the post so a retried batch is not counted twice.
-        let skipped = entries.len() - docs.len();
-        if skipped > 0 {
-            if self.too_old == 0 {
-                tracing::warn!(
-                    "skipping entries older than 18 hours: Datadog does not accept them \
-                     (they are counted as failed deliveries)"
-                );
+        // Skipped entries are counted once their chunk is settled, so a
+        // retried chunk is not counted twice.
+        let mut skipped = 0;
+        let mut chunk_skipped = 0;
+        let mut chunk_start = 0;
+        let mut body: Vec<u8> = Vec::new();
+        for (i, e) in entries.iter().enumerate() {
+            if e.timestamp < cutoff {
+                chunk_skipped += 1;
+                continue;
             }
-            self.too_old += skipped as u64;
+            let doc = serde_json::to_vec(&self.document(e)).expect("serializable");
+            if !body.is_empty() && body.len() + doc.len() + 2 > MAX_BODY_BYTES {
+                body.push(b']');
+                if let Err(err) = self.post(&body).await {
+                    return Err(self.unsent(chunk_start, entries.len(), skipped, err));
+                }
+                skipped += chunk_skipped;
+                chunk_skipped = 0;
+                chunk_start = i;
+                body.clear();
+            }
+            body.push(if body.is_empty() { b'[' } else { b',' });
+            body.extend_from_slice(&doc);
         }
+        if !body.is_empty() {
+            body.push(b']');
+            if let Err(err) = self.post(&body).await {
+                return Err(self.unsent(chunk_start, entries.len(), skipped, err));
+            }
+        }
+        skipped += chunk_skipped;
+        self.count_too_old(skipped);
         Ok(skipped)
     }
 
@@ -313,6 +352,41 @@ mod tests {
         assert_eq!(s.send(&[old]).await.unwrap(), 1);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert_eq!(s.too_old, 2);
+    }
+
+    #[tokio::test]
+    async fn failed_second_chunk_retries_only_its_entries() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(202))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let mut s =
+            DatadogSender::new(&server.uri(), "k", "s", std::time::Duration::from_secs(5)).unwrap();
+        // Two entries that do not fit in one 5 MB body.
+        let big = "x".repeat(3 * 1024 * 1024);
+        let mut old = entry("old");
+        old.timestamp = Utc::now() - TimeDelta::hours(19);
+        let entries = [old, entry(&big), entry(&big)];
+        match s.send(&entries).await.err().unwrap() {
+            Error::Partial {
+                retry,
+                rejected,
+                source,
+            } => {
+                assert_eq!(retry, vec![2]);
+                assert_eq!(rejected, 1);
+                assert!(source.is_retryable());
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(received(&server).await.len(), 2);
+        assert_eq!(s.too_old, 1);
     }
 
     #[tokio::test]

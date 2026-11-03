@@ -39,11 +39,8 @@ Entries are sent in batches (`--batch-size`, default 500 for Datadog and 10 for 
 - POST request (Sender: **post**): Any line-oriented log format sender.
 - Stdout (Sender: **stdout**): It's the default sender. Prints each entry as one JSON line (JSON Lines) including the `--index` value as the `index` field, so the output can be piped into `jq` or saved as-is (Useful for data transformation and debugging).
 
-### Supported log formats
 
-It may be possible to define your log format into a YAML file. See the current [log format definitions](log_formats).
-
-See [Log formats](#custom-log-formats) if you want to implement your own custom log format.
+### Built-in log formats
 
 The following log formats are built-in into LogSender:
 
@@ -54,10 +51,15 @@ The following log formats are built-in into LogSender:
 - **Nginx error** (Format: nginx_error): Nginx error log format.
 - **PHP** (Format: php): PHP FPM logs.
 - **Syslog** (Format: syslog): Syslog format.
+- 
+It may be possible to define your log format into a YAML file. See the current [log format definitions](log_formats).
+
 
 ## Usage
 
 See `logsender --help`
+
+Some examples:
 
 ```sh
 # Use laravel built-in format
@@ -111,8 +113,7 @@ logsender ./log_formats/my_app.yaml --to=http://localhost:4317 --sender=otlp --i
 
 ## Custom log formats
 
-A custom format is defined into a YAML file that tells LogSender how to recognize a header line and which captures
-become the timestamp, level, message and environment. Patterns use [Grok](https://github.com/logstash-plugins/logstash-patterns-core/blob/main/patterns/ecs-v1/grok-patterns) syntax on top of PCRE2, so the whole Logstash pattern library (`TIMESTAMP_ISO8601`, `LOGLEVEL`,
+A custom format is defined into a YAML file that tells LogSender how to recognize a header line and which captures become the timestamp, level, message and environment. Patterns use [Grok](https://github.com/logstash-plugins/logstash-patterns-core/blob/main/patterns/ecs-v1/grok-patterns) syntax on top of PCRE2, so the whole Logstash pattern library (`TIMESTAMP_ISO8601`, `LOGLEVEL`,
 `IPORHOST`, `HTTPDATE`, ...) is available.
 
 ### Writing a format
