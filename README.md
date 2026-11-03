@@ -51,7 +51,7 @@ The following log formats are built-in into LogSender:
 - **Nginx error** (Format: nginx_error): Nginx error log format.
 - **PHP** (Format: php): PHP FPM logs.
 - **Syslog** (Format: syslog): Syslog format.
-- 
+
 It may be possible to define your log format into a YAML file. See the current [log format definitions](log_formats).
 
 
@@ -183,6 +183,7 @@ stopwaitsecs=10
 redirect_stderr=true
 stdout_logfile=/var/log/logsender.log
 ```
+
 
 ## Build
 
