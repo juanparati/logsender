@@ -1,6 +1,6 @@
 [package]
 name = "logsender"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A lightweight log sender agent"
@@ -16,6 +16,12 @@ path = "src/main.rs"
 [lib]
 name = "logsender"
 path = "src/lib.rs"
+
+# `cargo binstall logsender` fetches the prebuilt archives from release.yml.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/{ name }-{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
 
 [dependencies]
 anyhow = "1"
