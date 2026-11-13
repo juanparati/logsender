@@ -33,12 +33,11 @@ Entries are sent in batches (`--batch-size`, default 500 for Datadog and 10 for 
 
 ### Supported destinations
 
-- OpenTelemetry (Sender: **otlp**): OpenTelemetry compatible sender.
-- Datadog (Sender: **datadog**): Datadog Logs API v2 direct sender (Without OTLP).
-- Elasticsearch (Sender: **es**): Elasticsearch 8+ Bulk API sender.
-- POST request (Sender: **post**): Any line-oriented log format sender.
-- Stdout (Sender: **stdout**): It's the default sender. Prints each entry as one JSON line (JSON Lines) including the `--index` value as the `index` field, so the output can be piped into `jq` or saved as-is (Useful for data transformation and debugging).
-
+- OpenTelemetry (Sender: **otlp**): OpenTelemetry compatible servers and ingestion services.
+- Datadog (Sender: **datadog**): Datadog Logs API v2 (Without OTLP).
+- Elasticsearch (Sender: **es**): Elasticsearch 8+ Bulk API.
+- POST request (Sender: **post**): POST/REPLAY logs in batch.
+- Stdout (Sender: **stdout**): It's the default sender. Prints each entry as one JSON line.
 
 ### Built-in log formats
 
