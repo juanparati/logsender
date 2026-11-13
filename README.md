@@ -25,7 +25,7 @@ LogSender is a small, fast single static binary that makes it ideal for small co
 cargo install logsender
 ```
 
-or just download a binary from the [last release](releases/latest).
+or just download a binary from the [last release](https://github.com/juanparati/logsender/releases/latest).
 
 
 ## How it works
