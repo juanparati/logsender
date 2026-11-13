@@ -19,6 +19,15 @@ Many log forwarder agents are slow and chunky; they may require the installation
 LogSender is a small, fast single static binary that makes it ideal for small container deployments and simple server setups.
 
 
+## Installation
+
+```sh
+cargo install logsender
+```
+
+or just download a binary from the [last release](releases/latest).
+
+
 ## How it works
 
 LogSender tails a log file (or reads stdin), parses each entry, and ships it to a destination.
